@@ -1,0 +1,10 @@
+ai-config.json
+.env
+.env.*
+!.env.example
+node_modules/
+logs/
+*.log
+*.bak*
+.DS_Store
+Thumbs.db

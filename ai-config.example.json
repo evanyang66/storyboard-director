@@ -1,0 +1,18 @@
+{
+  "provider": "comfyui",
+  "comfyui": {
+    "host": "http://127.0.0.1:8188",
+    "model": "",
+    "maxTokens": 2400,
+    "noThink": null
+  },
+  "api": {
+    "baseUrl": "",
+    "apiKey": "",
+    "model": "",
+    "temperature": 0.3,
+    "maxTokens": 1400,
+    "jsonMode": true,
+    "stream": true
+  }
+}

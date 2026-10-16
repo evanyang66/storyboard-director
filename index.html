@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>分镜调度台 · 俯视图走位与运镜工具</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand"><b>分镜调度台</b><span>俯视图 · 走位 · 动作 · 运镜 · 出片</span></div>
+    <div class="tb-group">
+      <button class="btn" id="btn-bg">导入背景图</button>
+      <button class="btn ghost" id="btn-sample">示例背景</button>
+      <button class="btn ghost" id="btn-demo">一键示例</button>
+      <button class="btn ghost" id="btn-ai" title="用本地模型（ComfyUI）或云端 API，按一句话改分镜">AI 编排</button>
+      <input type="file" id="file-bg" accept="image/*" hidden />
+    </div>
+    <div class="tb-group">
+      <button class="btn" id="btn-add-char">＋ 角色</button>
+      <button class="btn" id="btn-add-cam">＋ 摄像机</button>
+    </div>
+    <div class="tb-group">
+      <button class="btn ghost" id="btn-save">保存</button>
+      <button class="btn ghost" id="btn-load">打开</button>
+      <button class="btn ghost" id="btn-undo">撤销</button>
+      <input type="file" id="file-proj" accept="application/json,.json" hidden />
+    </div>
+    <div class="tb-group">
+      <label class="mini">时长 <input type="number" id="inp-dur" value="8" min="1" max="120" step="0.5" /> s</label>
+      <label class="mini">帧率 <input type="number" id="inp-fps" value="30" min="10" max="60" step="1" /></label>
+    </div>
+    <div class="tb-group">
+      <span class="mini" title="只影响镜头画面（预览 / 预演 / 导出），不影响俯视编辑与 3D 观察视图">画面</span>
+      <div class="seg" id="seg-mode" title="只影响镜头画面（预览 / 预演 / 导出），不影响俯视编辑与 3D 观察视图">
+        <button data-mode="3d" class="on">3D 透视</button><button data-mode="2d">2D 平面</button>
+      </div>
+    </div>
+    <div class="tb-group end">
+      <button class="btn ghost" id="btn-help">帮助</button>
+      <button class="btn ghost" id="btn-export-set" title="选择导出保存位置：记住一个文件夹后，导出不再每次弹窗">导出位置</button>
+      <button class="btn ghost" id="btn-png-top" title="按住 Shift 点 = 这一次另存为">导出俯视图</button>
+      <button class="btn ghost" id="btn-png-cam" title="按住 Shift 点 = 这一次另存为">导出镜头图</button>
+      <button class="btn ghost" id="btn-player">预览镜头视频</button>
+      <button class="btn primary" id="btn-video" title="按住 Shift 点 = 这一次另存为">导出视频</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <aside id="left">
+      <section>
+        <h3>工具</h3>
+        <div class="tools" id="tools">
+          <button class="tool active" data-tool="select">选择<span class="k">1</span></button>
+          <button class="tool" data-tool="char">放角色<span class="k">2</span></button>
+          <button class="tool" data-tool="cam">放摄像机<span class="k">3</span></button>
+          <button class="tool" data-tool="path">画走位线<span class="k">4</span></button>
+          <button class="tool" data-tool="erase">删除<span class="k">5</span></button>
+        </div>
+        <p class="tip" id="tool-tip">拖动对象移动；拖走位线上的方块改路径；滚轮缩放，空格播放。</p>
+      </section>
+      <section>
+        <h3>动作模板</h3>
+        <div class="chips" id="action-chips"></div>
+        <p class="tip">选中角色 → 点击动作，插入到当前时间。</p>
+      </section>
+      <section>
+        <h3>走位模板</h3>
+        <div class="chips" id="move-chips"></div>
+        <p class="tip">选中角色 → 点击生成一条走位线。</p>
+      </section>
+      <section>
+        <h3>运镜模板</h3>
+        <div class="chips" id="cam-chips"></div>
+        <p class="tip">选中摄像机 → 点击生成一段运镜。</p>
+      </section>
+      <section class="grow">
+        <h3>图层</h3>
+        <ul id="layers" class="layers"></ul>
+      </section>
+    </aside>
+
+    <main id="center">
+      <div id="stage-wrap">
+        <canvas id="stage"></canvas>
+        <div id="stage-hud">就绪</div>
+        <div class="seg float" id="seg-view">
+          <button data-view="top" class="on">俯视编辑</button><button data-view="3d">3D 观察</button>
+        </div>
+        <div id="stage-legend">
+          <span><i class="dot char"></i>角色</span>
+          <span><i class="dot cam"></i>摄像机</span>
+          <span><i class="dot fov"></i>镜头视野</span>
+        </div>
+      </div>
+      <div id="timeline">
+        <div id="tl-resize" title="拖动改时间轴高度 · 双击折叠 / 展开"></div>
+        <div class="tl-bar">
+          <button class="btn tiny" id="btn-play">▶ 播放</button>
+          <button class="btn tiny ghost" id="btn-stop">■ 归零</button>
+          <span class="tl-time"><b id="tl-cur">0.00</b> / <span id="tl-dur">8.00</span> s</span>
+          <label class="mini"><input type="checkbox" id="chk-loop" checked /> 循环</label>
+          <span class="spacer"></span>
+          <span class="tl-hint">点轨道定位 · 拖色条改时间 · 拖色条右缘改时长 · 双击色条跳到开始 · 拖最上面那条横线改高度</span>
+        </div>
+        <div class="tl-body" id="tl-body">
+          <div class="tl-rows" id="tl-rows"></div>
+          <div class="tl-playhead" id="tl-playhead"></div>
+        </div>
+      </div>
+    </main>
+
+    <aside id="right">
+      <section class="grow" id="props-wrap">
+        <h3>属性</h3>
+        <div id="props"></div>
+      </section>
+      <section>
+        <h3>镜头预览 <span class="badge" id="cam-name">无</span></h3>
+        <div id="preview-wrap" title="双击放大观察（看朝向 / 姿态细节）"><canvas id="preview"></canvas></div>
+        <div class="row wrap">
+          <label class="mini">分辨率
+            <select id="sel-res">
+              <option>1920x1080</option>
+              <option selected>1280x720</option>
+              <option>960x540</option>
+              <option>640x360</option>
+            </select>
+          </label>
+          <label class="mini"><input type="checkbox" id="chk-guides" checked /> 辅助线</label>
+        </div>
+        <p class="tip">双击画面放大观察 · 放大后滚轮缩放、拖动平移</p>
+      </section>
+    </aside>
+  </div>
+
+  <div id="toast"></div>
+  <div id="player" class="hidden">
+    <div class="player-box">
+      <div class="player-head">
+        <b>镜头预演</b><span class="badge" id="pl-cam">无</span>
+        <span class="spacer"></span>
+        <span class="mini" id="pl-res-wrap">分辨率
+          <select id="pl-res">
+            <option>1920x1080</option>
+            <option selected>1280x720</option>
+            <option>960x540</option>
+            <option>640x360</option>
+          </select>
+        </span>
+        <span class="mini" id="pl-zoom-wrap">缩放
+          <button class="btn tiny ghost" id="pl-zoom-out" title="缩小">−</button>
+          <b id="pl-zoom-val">100%</b>
+          <button class="btn tiny ghost" id="pl-zoom-in" title="放大">＋</button>
+          <button class="btn tiny ghost" id="pl-zoom-fit" title="缩放到刚好装下">适应</button>
+        </span>
+        <label class="mini"><input type="checkbox" id="pl-guides" /> 辅助线</label>
+        <label class="mini"><input type="checkbox" id="pl-gaze" /> 视线</label>
+        <button class="btn tiny ghost" id="pl-close">关闭 (Esc)</button>
+      </div>
+      <div class="player-stage"><canvas id="pl-canvas"></canvas></div>
+      <div class="player-bar">
+        <button class="btn tiny" id="pl-play">▶ 播放</button>
+        <button class="btn tiny ghost" id="pl-stop">■ 归零</button>
+        <input type="range" id="pl-scrub" min="0" max="1000" value="0" step="1" />
+        <span class="tl-time"><b id="pl-cur">0.00</b> / <span id="pl-dur">8.00</span> s</span>
+        <label class="mini"><input type="checkbox" id="pl-loop" checked /> 循环</label>
+        <span class="spacer"></span>
+        <button class="btn tiny ghost" id="pl-snap">存当前帧</button>
+        <button class="btn tiny primary" id="pl-rec">录制并导出</button>
+      </div>
+    </div>
+  </div>
+  <div id="loupe" class="hidden">
+    <div class="loupe-box">
+      <div class="loupe-head">
+        <b>放大观察</b><span class="badge" id="lp-cam">无</span>
+        <span class="mini" id="lp-res-wrap">分辨率
+          <select id="lp-res">
+            <option>1920x1080</option>
+            <option selected>1280x720</option>
+            <option>960x540</option>
+            <option>640x360</option>
+          </select>
+        </span>
+        <span class="mini">缩放
+          <button class="btn tiny ghost" id="lp-zoom-out" title="缩小">−</button>
+          <b id="lp-zoom-val">100%</b>
+          <button class="btn tiny ghost" id="lp-zoom-in" title="放大">＋</button>
+          <button class="btn tiny ghost" id="lp-zoom-fit" title="缩放到刚好装下">适应</button>
+          <button class="btn tiny ghost" id="lp-zoom-1" title="一个画布像素对一个屏幕像素">1:1</button>
+        </span>
+        <span class="spacer"></span>
+        <label class="mini"><input type="checkbox" id="lp-guides" checked /> 辅助线</label>
+        <button class="btn tiny ghost" id="lp-close">关闭 (Esc)</button>
+      </div>
+      <div class="loupe-stage"><canvas id="lp-canvas"></canvas></div>
+      <div class="loupe-bar">
+        <span class="tl-time"><b id="lp-cur">0.00</b> / <span id="lp-dur">8.00</span> s</span>
+        <span class="tl-hint">滚轮缩放（以指针为锚点）· 拖动平移 · 双击画面在「适应 / 1:1 对准主体」间切换</span>
+        <span class="spacer"></span>
+        <button class="btn tiny ghost" id="lp-snap">存当前帧</button>
+        <button class="btn tiny ghost" id="lp-player">打开预演</button>
+      </div>
+    </div>
+  </div>
+  <div id="modal" class="hidden">
+    <div class="modal-box">
+      <div class="modal-head"><b id="modal-title">提示</b><button class="btn tiny ghost" id="modal-close">关闭</button></div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/actions.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/render3d.js"></script>
+<script src="js/render.js"></script>
+<script src="js/export.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
